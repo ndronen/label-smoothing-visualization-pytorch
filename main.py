@@ -2,7 +2,6 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 import torchvision
@@ -18,6 +17,10 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
 parser.add_argument('--ce', action='store_true', help='Cross entropy use')
+parser.add_argument('--load-checkpoint', type=str, help='checkpoint path')
+parser.add_argument(
+    '--output-dir', type=str, default='checkpoint', help='save checkpoints to'
+)
 args = parser.parse_args()
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -49,23 +52,54 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship'
 # Model
 print('==> Building model..')
 net = RN.ResNet18()
+if args.load_checkpoint:
+    state_dict = torch.load(args.load_checkpoint)
+    net.load_state_dict(state_dict)
 net = net.to(device)
 
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 
-if args.ce == True:
+if not os.path.isdir(args.output_dir):
+    os.mkdir(args.output_dir)
+
+if args.ce:
     criterion = nn.CrossEntropyLoss()
-    save_path = './checkpoint/CrossEntropy.bin'
+    save_path = f'./{args.output_dir}/CrossEntropy.bin'
     print("Use CrossEntropy")
 else:
     criterion = LabelSmoothingCrossEntropy()
-    save_path = './checkpoint/LabelSmoothing.bin'
+    save_path = f'./{args.output_dir}/LabelSmoothing.bin'
     print("Use Label Smooting")
 
-optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001, nesterov= True)
-scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,60,90])
+
+if args.load_checkpoint:
+    # Assume we're fine-tuning
+    optimizer = optim.SGD(
+        net.parameters(),
+        lr=args.lr * 0.1**3,
+        momentum=0.9,
+        weight_decay=0.0001,
+        nesterov=True
+    )
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda epoch: 1
+    )
+else:
+    optimizer = optim.SGD(
+        net.parameters(),
+        lr=args.lr,
+        momentum=0.9,
+        weight_decay=0.0001,
+        nesterov=True
+    )
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer,
+        milestones=[30, 60, 90]
+    )
+
 
 # Training
 def train(epoch):
@@ -87,9 +121,13 @@ def train(epoch):
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
 
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-            % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        progress_bar(
+            batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' % (
+                train_loss/(batch_idx+1), 100.*correct/total, correct, total
+            )
+        )
     scheduler.step()
+
 
 def test(epoch):
     global best_acc
@@ -108,15 +146,16 @@ def test(epoch):
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
 
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+            progress_bar(
+                batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' % (
+                    test_loss/(batch_idx+1), 100.*correct/total, correct, total
+                )
+            )
 
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
         print('Saving..')
-        if not os.path.isdir('checkpoint'):
-            os.mkdir('checkpoint')
         save_model(net, save_path)
         best_acc = acc
 
