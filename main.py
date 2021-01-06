@@ -14,12 +14,18 @@ from utils import progress_bar, LabelSmoothingCrossEntropy, save_model
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
+parser.add_argument(
+    '--output-dir', type=str, required=True,
+    help='save checkpoints to directory'
+)
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
-parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
+parser.add_argument(
+    '--resume', '-r', action='store_true', help='resume from checkpoint'
+)
 parser.add_argument('--ce', action='store_true', help='Cross entropy use')
 parser.add_argument('--load-checkpoint', type=str, help='checkpoint path')
 parser.add_argument(
-    '--output-dir', type=str, default='checkpoint', help='save checkpoints to'
+    '--save-best-only', action='store_true', help='only save best models'
 )
 args = parser.parse_args()
 
@@ -41,13 +47,24 @@ transform_test = transforms.Compose([
     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ])
 
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=256, shuffle=True, num_workers=30)
+trainset = torchvision.datasets.CIFAR10(
+    root='./data', train=True, download=True, transform=transform_train
+)
+trainloader = torch.utils.data.DataLoader(
+    trainset, batch_size=256, shuffle=True, num_workers=8
+)
 
-testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
+testset = torchvision.datasets.CIFAR10(
+    root='./data', train=False, download=True, transform=transform_test
+)
+testloader = torch.utils.data.DataLoader(
+    testset, batch_size=100, shuffle=False, num_workers=2
+)
 
-classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+classes = (
+    'plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship',
+    'truck'
+)
 
 # Model
 print('==> Building model..')
@@ -66,12 +83,10 @@ if not os.path.isdir(args.output_dir):
 
 if args.ce:
     criterion = nn.CrossEntropyLoss()
-    save_path = f'./{args.output_dir}/CrossEntropy.bin'
     print("Use CrossEntropy")
 else:
     criterion = LabelSmoothingCrossEntropy()
-    save_path = f'./{args.output_dir}/LabelSmoothing.bin'
-    print("Use Label Smooting")
+    print("Use Label Smoothing")
 
 
 if args.load_checkpoint:
@@ -147,17 +162,22 @@ def test(epoch):
             correct += predicted.eq(targets).sum().item()
 
             progress_bar(
-                batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' % (
+                batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)' % (  # noqa: E501
                     test_loss/(batch_idx+1), 100.*correct/total, correct, total
                 )
             )
 
     # Save checkpoint.
     acc = 100.*correct/total
-    if acc > best_acc:
-        print('Saving..')
+    if not args.save_best_only:
+        save_path = f'{args.output_dir}/epoch-{epoch:03d}.bin'
         save_model(net, save_path)
-        best_acc = acc
+    if acc > best_acc:
+        # Always save the best model.
+        save_best_path = f'{args.output_dir/best.bin'
+        print(f'Saving new best model')
+        save_model(net, save_best_path)
+    best_acc = acc
 
 
 for epoch in range(start_epoch, start_epoch+120):
