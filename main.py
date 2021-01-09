@@ -13,11 +13,25 @@ import argparse
 import resnet as RN
 from utils import progress_bar, LabelSmoothingCrossEntropy, save_model
 
+from lmexpt.activations import SoftMarginSoftmax
+
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
 parser.add_argument('--resume', '-r', action='store_true', help='resume from checkpoint')
-parser.add_argument('--ce', action='store_true', help='Cross entropy use')
+parser.add_argument(
+    '--loss',
+    type=str,
+    choices=('cross-entropy', 'sm-softmax', 'label-smoothing'),
+    default='label-smoothing',
+    help='type of loss to use'
+)
+parser.add_argument(
+    '--softmax-margin',
+    type=float,
+    default=1.0,
+    help='margin parameter of soft-margin softmax'
+)
 args = parser.parse_args()
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -55,14 +69,29 @@ if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 
-if args.ce == True:
+if args.loss == 'cross-entropy':
     criterion = nn.CrossEntropyLoss()
     save_path = './checkpoint/CrossEntropy.bin'
     print("Use CrossEntropy")
+elif args.loss == 'sm-softmax':
+    class NLLSoftMarginSoftmax(nn.Module):
+        def __init__(self, margin):
+            super().__init__()
+            self.margin = margin
+            self.sm_softmax = SoftMarginSoftmax(margin=margin)
+            self.nllloss = torch.nn.NLLLoss()
+        def forward(self, input, target):
+            probs = self.sm_softmax(input)
+            logprobs = probs.log()
+            loss = self.nllloss(logprobs, target)
+            return loss
+    criterion = NLLSoftMarginSoftmax(margin=args.softmax_margin)
+    save_path = './checkpoint/SMSoftmax.bin'
+    print("Use soft-margin softmax")
 else:
     criterion = LabelSmoothingCrossEntropy()
     save_path = './checkpoint/LabelSmoothing.bin'
-    print("Use Label Smooting")
+    print("Use Label Smoothing")
 
 optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001, nesterov= True)
 scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,60,90])
